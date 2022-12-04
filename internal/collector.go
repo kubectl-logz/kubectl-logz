@@ -64,10 +64,8 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 	scanner := bufio.NewScanner(logs)
 
 	for scanner.Scan() {
-		r, err := parse(scanner.Bytes())
-		if err != nil {
-			log.Printf("err=%v", err)
-		} else {
+		r := parse(scanner.Bytes())
+		if r.Valid() {
 			log.Println(r.String())
 		}
 	}

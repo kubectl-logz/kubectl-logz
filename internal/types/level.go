@@ -19,7 +19,7 @@ func ParseLevel(l string) Level {
 		return "warn"
 	case "info", "INFO":
 		return "info"
-	case "debug", "DEBUG":
+	case "debug", "DEBUG", "trace", "TRACE":
 		return "debug"
 	default:
 		return ""

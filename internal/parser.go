@@ -1,6 +1,8 @@
 package internal
 
 import (
+	"strings"
+
 	"github.com/kr/logfmt"
 	"github.com/kubectl-logz/kubectl-logz/internal/failover"
 	"github.com/kubectl-logz/kubectl-logz/internal/fields"
@@ -8,17 +10,23 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 )
 
-func parse(l []byte) (types.Entry, error) {
+type unmarshaller = func([]byte, any) error
+
+var unmarshalers = []unmarshaller{
+	logfmt.Unmarshal,
+	json.Unmarshal,
+	fields.Unmarshaler(fields.Braces),
+	fields.Unmarshaler(strings.Fields),
+	failover.Unmarshal,
+}
+
+func parse(l []byte) types.Entry {
 	r := types.Entry{}
-	if _ = logfmt.Unmarshal(l, &r); r.Valid() {
-		return r, nil
+	for _, u := range unmarshalers {
+		_ = u(l, &r)
+		if r.Valid() {
+			break
+		}
 	}
-	if _ = json.Unmarshal(l, &r); r.Valid() {
-		return r, nil
-	}
-	if fields.Unmarshal(l, &r); r.Valid() {
-		return r, nil
-	}
-	failover.Unmarshal(l, &r)
-	return r, nil
+	return r
 }

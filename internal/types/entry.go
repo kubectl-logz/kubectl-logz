@@ -7,9 +7,10 @@ import (
 )
 
 type Entry struct {
-	Time  time.Time `json:"time"`
-	Level Level     `json:"level"`
-	Msg   string    `json:"msg,omitempty"`
+	Time     time.Time `json:"time"`
+	Level    Level     `json:"level"`
+	Msg      string    `json:"msg,omitempty"`
+	ThreadID string    `json:"threadId,omitempty"`
 }
 
 func (r Entry) String() string {

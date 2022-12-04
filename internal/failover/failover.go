@@ -8,7 +8,8 @@ import (
 
 var levelRx = regexp.MustCompile("\\b(error|warn|warning|info|debug|ERROR|WARN|WARNING|INFO|DEBUG)(ing)?\\b")
 
-func Unmarshal(l []byte, r *types.Entry) {
+func Unmarshal(l []byte, v interface{}) error {
+	r := v.(*types.Entry)
 	s := string(l)
 	r.Time = types.ParseTime(s)
 	if find := levelRx.FindSubmatch(l); len(find) > 0 {
@@ -16,5 +17,7 @@ func Unmarshal(l []byte, r *types.Entry) {
 	} else {
 		r.Level = "info"
 	}
+	r.ThreadID = types.ParseThreadId(s)
 	r.Msg = s
+	return nil
 }
