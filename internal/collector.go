@@ -40,10 +40,12 @@ func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
 		pod := event.Object.(*corev1.Pod)
 		log.Printf("type=%v, pod=%s\n", event.Type, pod.Name)
 		for _, container := range pod.Spec.Containers {
-			err := collectContainerLogs(ctx, clientset, pod.Namespace, pod.Name, container.Name)
-			if err != nil {
-				return err
-			}
+			go func(container string) {
+				err := collectContainerLogs(ctx, clientset, pod.Namespace, pod.Name, container)
+				if err != nil {
+					log.Printf("err=%q\n", err)
+				}
+			}(container.Name)
 		}
 	}
 	return nil
