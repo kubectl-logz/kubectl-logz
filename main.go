@@ -27,8 +27,8 @@ var fs embed.FS
 func main() {
 	var openBrowser bool
 	var kubeconfig string
-	flag.BoolVar(&openBrowser, "b", true, "open browser")
-	flag.StringVar(&kubeconfig, "kubeconfig", filepath.Join(homedir.HomeDir(), ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	flag.BoolVar(&openBrowser, "b", false, "open browser")
+	flag.StringVar(&kubeconfig, "k", filepath.Join(homedir.HomeDir(), ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	flag.Parse()
 	log.Printf(" openBrowser=%v\n", openBrowser)
 
@@ -46,11 +46,17 @@ func main() {
 	})
 	go func() {
 		time.Sleep(time.Second)
-		if err := browser.OpenURL("http://localhost:5649"); err != nil {
+		if openBrowser {
+			if err := browser.OpenURL("http://localhost:5649"); err != nil {
+				log.Fatal(err)
+			}
+		}
+	}()
+	srv := &http.Server{Addr: "localhost:5649", Handler: r}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil {
 			log.Fatal(err)
 		}
 	}()
-	if err := r.Run("localhost:5649"); err != nil {
-		log.Fatal(err)
-	}
+	<-ctx.Done()
 }

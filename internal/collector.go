@@ -1,11 +1,11 @@
 package internal
 
 import (
+	"bufio"
 	"context"
-	"fmt"
-	"time"
+	"log"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -13,42 +13,64 @@ import (
 )
 
 func Run(ctx context.Context, kubeconfig string) {
-
-	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err)
 	}
-
-	// create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err)
 	}
 	for {
-		pods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+		err := collectPods(ctx, clientset)
 		if err != nil {
-			panic(err.Error())
+			log.Println(err)
+			return
 		}
-		fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
-
-		// Examples for error handling:
-		// - Use helper functions like e.g. errors.IsNotFound()
-		// - And/or cast to StatusError and use its properties like e.g. ErrStatus.Message
-		namespace := "default"
-		pod := "example-xxxxx"
-		_, err = clientset.CoreV1().Pods(namespace).Get(ctx, pod, metav1.GetOptions{})
-		if errors.IsNotFound(err) {
-			fmt.Printf("Pod %s in namespace %s not found\n", pod, namespace)
-		} else if statusError, isStatus := err.(*errors.StatusError); isStatus {
-			fmt.Printf("Error getting pod %s in namespace %s: %v\n",
-				pod, namespace, statusError.ErrStatus.Message)
-		} else if err != nil {
-			panic(err.Error())
-		} else {
-			fmt.Printf("Found pod %s in namespace %s\n", pod, namespace)
-		}
-
-		time.Sleep(10 * time.Second)
 	}
+}
+
+func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
+	pods, err := clientset.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	defer pods.Stop()
+	for event := range pods.ResultChan() {
+		pod := event.Object.(*corev1.Pod)
+		log.Printf("type=%v, pod=%s\n", event.Type, pod.Name)
+		for _, container := range pod.Spec.Containers {
+			err := collectContainerLogs(ctx, clientset, pod.Namespace, pod.Name, container.Name)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, namespace, pod, container string) error {
+	log.Printf("pod=%s, container=%s\n", pod, container)
+	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{
+		Container:  container,
+		Follow:     true,
+		Timestamps: true,
+	}).Stream(ctx)
+	if err != nil {
+		return err
+	}
+	defer logs.Close()
+
+	scanner := bufio.NewScanner(logs)
+
+	for scanner.Scan() {
+		r, err := parse(scanner.Bytes())
+		if err != nil {
+			log.Printf("err=%v", err)
+		} else {
+			log.Println(r.String())
+		}
+	}
+
+	return nil
 }
