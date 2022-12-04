@@ -30,6 +30,6 @@ func Test_parse(t *testing.T) {
 		assert.False(t, e.Time.IsZero(), "non-zero time")
 		assert.Equal(t, types.Level("warn"), e.Level, "level")
 		assert.Equal(t, "", e.ThreadID, "threadId")
-		assert.Equal(t, "1 Starting gunicorn 19.9.0", e.Msg)
+		assert.Equal(t, "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server", e.Msg)
 	})
 }
