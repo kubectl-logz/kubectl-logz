@@ -17,8 +17,6 @@ func Unmarshal(data []byte, entry *types.Entry) error {
 	}
 	if find := levelRx.FindSubmatch(data); len(find) > 0 {
 		entry.Level = types.ParseLevel(string(find[0]))
-	} else {
-		entry.Level = "info"
 	}
 	entry.ThreadID = types.ParseThreadId(s)
 	entry.Msg = s

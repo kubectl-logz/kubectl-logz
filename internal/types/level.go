@@ -13,7 +13,7 @@ func (l Level) IsZero() bool {
 
 func ParseLevel(l string) Level {
 	switch l {
-	case "error", "ERROR", "fatal", "FATAL":
+	case "error", "ERROR", "fatal", "FATAL", "critical", "CRITICAL":
 		return "error"
 	case "warning", "WARNING", "warn", "WARN":
 		return "warn"

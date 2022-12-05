@@ -7,7 +7,6 @@ import (
 	"github.com/kubectl-logz/kubectl-logz/internal/parser/json"
 	"github.com/kubectl-logz/kubectl-logz/internal/parser/logfmt"
 	"github.com/kubectl-logz/kubectl-logz/internal/parser/unstructured"
-
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
 )
 
@@ -33,7 +32,18 @@ func unmarshall(line []byte) types.Entry {
 }
 
 func Parse(lines <-chan []byte, entries chan<- types.Entry) {
+	// last is used to merge multi-line entries together
+	var last types.Entry
 	for line := range lines {
-		entries <- unmarshall(line)
+		entry := unmarshall(line)
+		if entry.Time.IsZero() && !last.Time.IsZero() {
+			last.Msg = last.Msg + "\n" + entry.Msg
+		} else {
+			if !last.IsZero() {
+				entries <- last
+			}
+			last = entry
+		}
 	}
+	entries <- last
 }
