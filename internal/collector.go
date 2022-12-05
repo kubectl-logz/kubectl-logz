@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kubectl-logz/kubectl-logz/internal/parser"
+	"k8s.io/apimachinery/pkg/util/runtime"
+
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,6 +52,7 @@ func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
 		log.Printf("type=%v, pod=%s\n", event.Type, pod.Name)
 		for _, container := range pod.Spec.Containers {
 			go func(container string) {
+				defer runtime.HandleCrash()
 				err := collectContainerLogs(ctx, clientset, pod.Namespace, pod.Name, container)
 				if err != nil {
 					log.Printf("err=%q\n", err)
@@ -61,10 +65,7 @@ func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
 
 func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, namespace, pod, container string) error {
 	log.Printf("pod=%s, container=%s\n", pod, container)
-	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{
-		Container: container,
-		Follow:    true,
-	}).Stream(ctx)
+	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{Container: container}).Stream(ctx)
 	if err != nil {
 		return err
 	}
@@ -74,16 +75,44 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 
 	c := types.Ctx{Host: fmt.Sprintf("%s.%s.%s", namespace, pod, container)}
 
-	f, err := os.Create(filepath.Join("logs", c.Host+".log"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	lines := make(chan []byte, 100)
+	defer close(lines)
+
+	entries := make(chan types.Entry)
+
+	errors := make(chan error)
+
+	go func() {
+		defer runtime.HandleCrash()
+		defer close(entries)
+		parser.Parse(lines, entries)
+	}()
+	go func() {
+		err := func() error {
+			defer runtime.HandleCrash()
+			f, err := os.Create(filepath.Join("logs", c.Host+".log"))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+			for entry := range entries {
+				if _, err := f.WriteString(entry.String() + "\n"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			errors <- err
+		}
+	}()
 
 	for scanner.Scan() {
-		r := parse(scanner.Bytes())
-		if _, err := f.WriteString(r.String() + "\n"); err != nil {
+		select {
+		case err := <-errors:
 			return err
+		default:
+			lines <- scanner.Bytes()
 		}
 	}
 

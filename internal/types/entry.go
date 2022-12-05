@@ -7,24 +7,25 @@ import (
 )
 
 type Entry struct {
-	Time     time.Time `json:"time"`
-	Level    Level     `json:"level"`
+	Time     time.Time `json:"time,omitempty"`
+	Level    Level     `json:"level,omitempty"`
 	Msg      string    `json:"msg,omitempty"`
 	ThreadID string    `json:"threadId,omitempty"`
 }
 
-func (r Entry) String() string {
-	elems := []string{
-		fmt.Sprintf("time=%v", r.Time.Format(time.RFC3339)),
-		fmt.Sprintf("level=%v", r.Level),
+func (e Entry) String() string {
+	var elems []string
+	if !e.Time.IsZero() {
+		elems = append(elems, fmt.Sprintf("time=%s", e.Time))
 	}
-	if r.Msg != "" {
-		elems = append(elems, fmt.Sprintf("msg=%q", r.Msg))
+	if e.Level != "" {
+		elems = append(elems, fmt.Sprintf("level=%v", e.Level))
 	}
-	return strings.Join(
-		elems, " ")
-}
-
-func (r Entry) Valid() bool {
-	return !r.Time.IsZero() && r.Level != ""
+	if e.ThreadID != "" {
+		elems = append(elems, fmt.Sprintf("threadId=%q", e.ThreadID))
+	}
+	if e.Msg != "" {
+		elems = append(elems, fmt.Sprintf("msg=%q", e.Msg))
+	}
+	return strings.Join(elems, " ")
 }
