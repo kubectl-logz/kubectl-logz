@@ -8,6 +8,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  Slider,
   Table,
   TableBody,
   TableCell,
@@ -16,6 +17,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  Toolbar,
 } from "@mui/material";
 import Moment from "react-moment";
 
@@ -32,7 +34,7 @@ const Logs = () => {
   const [page, setPage] = useState(0);
   const [limit, setLimit] = useState(10);
   const [count, setCount] = useState();
-  const [level, setLevel] = useState("debug");
+  const [level, setLevel] = useState("error");
   const [entries, setEntries] = useState();
   const [files, setFiles] = useState();
   const [error, setError] = useState();
@@ -72,31 +74,51 @@ const Logs = () => {
   if (error) {
     return <Alert severity={"error"}>{error.message}</Alert>;
   }
+  const marks = [
+    {
+      value: 0,
+      label: "debug",
+    },
+    {
+      value: 1,
+      label: "info",
+    },
+    {
+      value: 2,
+      label: "warn",
+    },
+    {
+      value: 3,
+      label: "error",
+    },
+  ];
 
   return (
     <Box>
-      <Select onChange={(e) => setFile(e.target.value)} value={file || ""}>
-        <MenuItem>Select log...</MenuItem>
-        {files?.map((item) => (
-          <MenuItem key={item} value={item}>
-            {item}
-          </MenuItem>
-        ))}
-      </Select>
-      <Select onChange={(e) => setLevel(e.target.value)} value={level}>
-        <MenuItem key="error" value="error">
-          error
-        </MenuItem>
-        <MenuItem key="warn" value="warn">
-          warn
-        </MenuItem>
-        <MenuItem key="info" value="info">
-          info
-        </MenuItem>
-        <MenuItem key="debug" value="debug">
-          debug
-        </MenuItem>
-      </Select>
+      <Toolbar>
+        <Box sx={{ width: 200, padding: 2 }}>
+          <Slider
+            value={marks.find((mark) => mark.label === level).value}
+            max={3}
+            step={1}
+            valueLabelDisplay="auto"
+            marks={marks}
+            onChange={(event, newValue) => {
+              setLevel(marks.find((mark) => mark.value === newValue).label);
+            }}
+          />
+        </Box>
+        <Box>
+          <Select onChange={(e) => setFile(e.target.value)} value={file || ""}>
+            <MenuItem>Select log...</MenuItem>
+            {files?.map((item) => (
+              <MenuItem key={item} value={item}>
+                {item}
+              </MenuItem>
+            ))}
+          </Select>
+        </Box>
+      </Toolbar>
       {entries && (
         <Box>
           <TableContainer>
