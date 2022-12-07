@@ -41,7 +41,10 @@ func Test_parse(t *testing.T) {
 		assert.Equal(t, "o.a.k.c.c.i.SubscriptionState 399 Consumer clientId=consumer-Intuit.asset.alias.undefined-local-1, groupId=Intuit.asset.alias.undefined-local localhost:9092 (id: 1 rack: null) Resetting offset for partition sequencer-local-0 to position FetchPosition{offset=0, offsetEpoch=Optional.empty, currentLeader=LeaderAndEpoch{leader=Optional, epoch=0}}.", e.Msg)
 	})
 	t.Run("httpbin", func(t *testing.T) {
-		e := parse([]byte(`[2022-12-04 16:48:49 +0000] [1] [INFO] Starting gunicorn 19.9.0`))
+		e := parse(
+			[]byte(`[2022-12-04 16:48:49 +0000] [1] [INFO] Starting gunicorn 19.9.0`),
+			[]byte(`[2022-12-04 16:48:49 +0000] [1] [INFO] Listening at: http://0.0.0.0:80 (1)`),
+		)
 		assert.NotEmpty(t, e.Time, "time")
 		assert.Equal(t, types.Level("info"), e.Level, "level")
 		assert.Equal(t, "", e.ThreadID, "threadId")

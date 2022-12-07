@@ -11,6 +11,23 @@ func (l Level) IsZero() bool {
 	return l == ""
 }
 
+func (l Level) Less(level Level) bool {
+	return l.intVal() < level.intVal()
+}
+
+func (l Level) intVal() int {
+	switch l {
+	case "error":
+		return 4
+	case "warn":
+		return 3
+	case "debug":
+		return 1
+	default:
+		return 2
+	}
+}
+
 func ParseLevel(l string) Level {
 	switch l {
 	case "error", "ERROR", "fatal", "FATAL", "critical", "CRITICAL":
