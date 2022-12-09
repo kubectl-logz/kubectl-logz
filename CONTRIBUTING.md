@@ -2,24 +2,32 @@
 
 Prerequisite:
 
+- Docker
 - Golang
 - NPM
 
-To run the server:
+```bash
+# start etcd
+docker run --rm --name etcd-server \
+    -p 2379:2379 \
+    -p 2380:2380 \
+    -e ALLOW_NONE_AUTHENTICATION=yes \
+    -e ETCD_ADVERTISE_CLIENT_URLS=http://etcd-server:2379 \
+    bitnami/etcd
+```
 
 ```bash
+# run the server
 go run .
 ```
 
-To run the UI:
-
 ```bash
+# run the UI
 npm start
 ```
 
-Install pre-commit hook:
-
 ```bash
+# install pre-commit hook
 cat > .git/hooks/pre-commit <<EOF
 set -eux
 go vet .
@@ -32,9 +40,8 @@ EOF
 chmod +x .git/hooks/pre-commit
 ```
 
-To build the binary:
-
 ```bash
+# build the binary
 go generate .
 go build .
 ```

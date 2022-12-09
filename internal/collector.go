@@ -8,12 +8,13 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kubectl-logz/kubectl-logz/internal/parser"
-	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 
+	"github.com/kubectl-logz/kubectl-logz/internal/parser"
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
@@ -24,7 +25,15 @@ func init() {
 }
 
 func Run(ctx context.Context, kubeconfig string) {
-	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
+	loadingRules.ExplicitPath = kubeconfig
+	clientConfig := clientcmd.NewInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}, os.Stdin)
+	namespace, _, err := clientConfig.Namespace()
+	if err != nil {
+		log.Fatal(err)
+	}
+	config, err := clientConfig.ClientConfig()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,16 +42,15 @@ func Run(ctx context.Context, kubeconfig string) {
 		log.Fatal(err)
 	}
 	for {
-		err := collectPods(ctx, clientset)
+		err := collectPods(ctx, namespace, clientset)
 		if err != nil {
-			log.Println(err)
-			return
+			log.Fatal(err)
 		}
 	}
 }
 
-func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
-	pods, err := clientset.CoreV1().Pods("").Watch(ctx, metav1.ListOptions{})
+func collectPods(ctx context.Context, namespace string, clientset *kubernetes.Clientset) error {
+	pods, err := clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -50,14 +58,17 @@ func collectPods(ctx context.Context, clientset *kubernetes.Clientset) error {
 	for event := range pods.ResultChan() {
 		pod := event.Object.(*corev1.Pod)
 		log.Printf("type=%v, pod=%s\n", event.Type, pod.Name)
+		if event.Type != watch.Added {
+			continue
+		}
 		for _, container := range pod.Spec.Containers {
-			go func(container string) {
+			go func(namespace, pod, container string) {
 				defer runtime.HandleCrash()
-				err := collectContainerLogs(ctx, clientset, pod.Namespace, pod.Name, container)
+				err := collectContainerLogs(ctx, clientset, namespace, pod, container)
 				if err != nil {
 					log.Printf("err=%q\n", err)
 				}
-			}(container.Name)
+			}(pod.Namespace, pod.Name, container.Name)
 		}
 	}
 	return nil
@@ -71,16 +82,14 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 	}
 	defer logs.Close()
 
-	scanner := bufio.NewScanner(logs)
-
 	c := types.Ctx{Host: fmt.Sprintf("%s.%s.%s", namespace, pod, container)}
 
 	lines := make(chan []byte, 100)
 	defer close(lines)
 
-	entries := make(chan types.Entry)
-
-	errors := make(chan error)
+	entries := make(chan types.Entry, 10)
+	errors := make(chan error, 1)
+	defer close(errors)
 
 	go func() {
 		defer runtime.HandleCrash()
@@ -88,8 +97,8 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 		parser.Parse(lines, entries)
 	}()
 	go func() {
+		defer runtime.HandleCrash()
 		err := func() error {
-			defer runtime.HandleCrash()
 			f, err := os.Create(filepath.Join("logs", c.Host+".log"))
 			if err != nil {
 				return err
@@ -107,12 +116,17 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 		}
 	}()
 
+	scanner := bufio.NewScanner(logs)
 	for scanner.Scan() {
 		select {
 		case err := <-errors:
 			return err
 		default:
-			lines <- scanner.Bytes()
+			// make a copy because the scanner re-uses it's array
+			i := scanner.Bytes()
+			bytes := make([]byte, len(i))
+			copy(bytes, i)
+			lines <- bytes
 		}
 	}
 
