@@ -40,7 +40,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	go internal.Run(ctx, kubeconfig)
+	collector, err := internal.NewCollector(kubeconfig)
+	if err != nil {
+		log.Fatal(err)
+	}
+	go collector.Run(ctx)
 
 	r := gin.Default()
 

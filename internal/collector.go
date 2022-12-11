@@ -24,33 +24,45 @@ func init() {
 	_ = os.Mkdir("logs", 0700)
 }
 
-func Run(ctx context.Context, kubeconfig string) {
+type Collector struct {
+	clientset *kubernetes.Clientset
+	namespace string
+}
+
+func NewCollector(kubeconfig string) (*Collector, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	loadingRules.ExplicitPath = kubeconfig
 	clientConfig := clientcmd.NewInteractiveDeferredLoadingClientConfig(loadingRules, &clientcmd.ConfigOverrides{}, os.Stdin)
 	namespace, _, err := clientConfig.Namespace()
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	config, err := clientConfig.ClientConfig()
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
+	return &Collector{
+		clientset: clientset,
+		namespace: namespace,
+	}, nil
+}
+
+func (c *Collector) Run(ctx context.Context) {
 	for {
-		err := collectPods(ctx, namespace, clientset)
+		err := c.collectPods(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
 	}
 }
 
-func collectPods(ctx context.Context, namespace string, clientset *kubernetes.Clientset) error {
-	pods, err := clientset.CoreV1().Pods(namespace).Watch(ctx, metav1.ListOptions{})
+func (c *Collector) collectPods(ctx context.Context) error {
+	pods, err := c.clientset.CoreV1().Pods(c.namespace).Watch(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err
 	}
@@ -64,7 +76,7 @@ func collectPods(ctx context.Context, namespace string, clientset *kubernetes.Cl
 		for _, container := range pod.Spec.Containers {
 			go func(namespace, pod, container string) {
 				defer runtime.HandleCrash()
-				err := collectContainerLogs(ctx, clientset, namespace, pod, container)
+				err := c.collectContainerLogs(ctx, pod, container)
 				if err != nil {
 					log.Printf("err=%q\n", err)
 				}
@@ -74,15 +86,15 @@ func collectPods(ctx context.Context, namespace string, clientset *kubernetes.Cl
 	return nil
 }
 
-func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, namespace, pod, container string) error {
+func (c *Collector) collectContainerLogs(ctx context.Context, pod, container string) error {
 	log.Printf("pod=%s, container=%s\n", pod, container)
-	logs, err := clientset.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{Container: container}).Stream(ctx)
+	logs, err := c.clientset.CoreV1().Pods(c.namespace).GetLogs(pod, &corev1.PodLogOptions{Container: container}).Stream(ctx)
 	if err != nil {
 		return err
 	}
 	defer logs.Close()
 
-	c := types.Ctx{Host: fmt.Sprintf("%s.%s.%s", namespace, pod, container)}
+	lc := types.Ctx{Hostname: fmt.Sprintf("%s.%s.%s", c.namespace, pod, container)}
 
 	lines := make(chan []byte, 100)
 	defer close(lines)
@@ -99,15 +111,19 @@ func collectContainerLogs(ctx context.Context, clientset *kubernetes.Clientset, 
 	go func() {
 		defer runtime.HandleCrash()
 		err := func() error {
-			f, err := os.Create(filepath.Join("logs", c.Host+".log"))
+			f, err := os.Create(filepath.Join("logs", lc.Hostname+".log"))
 			if err != nil {
 				return err
 			}
 			defer f.Close()
+			offset := 0
 			for entry := range entries {
-				if _, err := f.WriteString(entry.String() + "\n"); err != nil {
+				if n, err := f.WriteString(entry.String() + "\n"); err != nil {
 					return err
+				} else {
+					offset = offset + n
 				}
+				// key := fmt.Sprintf("(%s,%d)->(%s,%d)", lc.Hostname, entry.Time.UnixMilli(), f.Name(), offset)
 			}
 			return nil
 		}()
