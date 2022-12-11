@@ -28,7 +28,7 @@ func unmarshall(line []byte) types.Entry {
 			return entry
 		}
 	}
-	return types.Entry{Msg: string(line)}
+	return types.Entry{Level: "info", Msg: string(line)}
 }
 
 func Parse(lines <-chan []byte, entries chan<- types.Entry) {

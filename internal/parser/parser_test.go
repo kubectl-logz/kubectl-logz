@@ -64,11 +64,4 @@ func Test_parse(t *testing.T) {
 		assert.Equal(t, "t-0", e.ThreadID, "threadId")
 		assert.Equal(t, "foo\nbar", e.Msg)
 	})
-	t.Run("multi-line-no-time", func(t *testing.T) {
-		e := parse([]byte(`foo`), []byte(`bar`))
-		assert.Zero(t, e.Time, "time")
-		assert.Equal(t, types.Level(""), e.Level, "level")
-		assert.Equal(t, "", e.ThreadID, "threadId")
-		assert.Equal(t, "foo\nbar", e.Msg)
-	})
 }

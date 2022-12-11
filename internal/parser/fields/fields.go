@@ -1,7 +1,6 @@
 package fields
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
@@ -32,8 +31,8 @@ func Unmarshaler(splitter func(string) []string) func(data []byte, entry *types.
 			}
 			msg = append(msg, s)
 		}
-		if entry.Time.IsZero() {
-			return fmt.Errorf("could not parse")
+		if entry.Level == "" {
+			entry.Level = "info"
 		}
 		entry.Msg = strings.Join(msg, " ")
 		return nil
