@@ -1,12 +1,12 @@
 import * as React from "react";
 import Container from "@mui/material/Container";
 import { useEffect, useState } from "react";
+import dayjs from "dayjs";
+
 import {
   Alert,
   Box,
-  Icon,
   MenuItem,
-  Paper,
   Select,
   Slider,
   Table,
@@ -17,9 +17,12 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TextField,
   Toolbar,
 } from "@mui/material";
 import Moment from "react-moment";
+import { DateTimePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 
 export default function App() {
   return (
@@ -35,13 +38,14 @@ const Logs = () => {
   const [limit, setLimit] = useState(10);
   const [count, setCount] = useState();
   const [level, setLevel] = useState("error");
+  const [start, setStart] = useState(dayjs());
   const [entries, setEntries] = useState();
   const [files, setFiles] = useState();
   const [error, setError] = useState();
 
   useEffect(() => {
     fetch("/api/v1/logs")
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : r.json().then((j) => Promise.reject(j))))
       .then((j) => setFiles(j.files))
       .catch(setError);
   }, []);
@@ -49,6 +53,14 @@ const Logs = () => {
   useEffect(() => {
     setPage(0);
   }, [file]);
+
+  useEffect(() => {
+    if (error) {
+      setTimeout(() => {
+        setError(null);
+      }, 10000);
+    }
+  }, [error]);
 
   useEffect(() => {
     if (file) {
@@ -60,20 +72,21 @@ const Logs = () => {
           "&page=" +
           page +
           "&limit=" +
-          limit
+          limit +
+          "&start=" +
+          start.format()
       )
-        .then((r) => r.json())
+        .then((r) =>
+          r.ok ? r.json() : r.json().then((j) => Promise.reject(j))
+        )
         .then((j) => {
           setCount(j.metadata.count);
           setEntries(j.entries);
         })
         .catch(setError);
     }
-  }, [file, level, page, limit]);
+  }, [file, level, page, limit, start]);
 
-  if (error) {
-    return <Alert severity={"error"}>{error.message}</Alert>;
-  }
   const marks = [
     {
       value: 0,
@@ -117,8 +130,18 @@ const Logs = () => {
               </MenuItem>
             ))}
           </Select>
+          <LocalizationProvider dateAdapter={AdapterDayjs}>
+            <DateTimePicker
+              onChange={(e) => {
+                setStart(e);
+              }}
+              value={start}
+              renderInput={(params) => <TextField {...params} />}
+            />
+          </LocalizationProvider>
         </Box>
       </Toolbar>
+      {error && <Alert severity="error">{error.message}</Alert>}
       {entries && (
         <Box>
           <TableContainer>

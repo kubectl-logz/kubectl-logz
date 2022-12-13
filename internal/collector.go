@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kubectl-logz/kubectl-logz/internal/db"
+
 	"k8s.io/apimachinery/pkg/watch"
 
 	"github.com/kubectl-logz/kubectl-logz/internal/parser"
@@ -27,9 +29,10 @@ func init() {
 type Collector struct {
 	clientset *kubernetes.Clientset
 	namespace string
+	db        *db.DB
 }
 
-func NewCollector(kubeconfig string) (*Collector, error) {
+func NewCollector(kubeconfig string, db *db.DB) (*Collector, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	loadingRules.ExplicitPath = kubeconfig
@@ -49,6 +52,7 @@ func NewCollector(kubeconfig string) (*Collector, error) {
 	return &Collector{
 		clientset: clientset,
 		namespace: namespace,
+		db:        db,
 	}, nil
 }
 
@@ -68,8 +72,10 @@ func (c *Collector) collectPods(ctx context.Context) error {
 	}
 	defer pods.Stop()
 	for event := range pods.ResultChan() {
-		pod := event.Object.(*corev1.Pod)
-		log.Printf("type=%v, pod=%s\n", event.Type, pod.Name)
+		pod, ok := event.Object.(*corev1.Pod)
+		if !ok {
+			return fmt.Errorf("%v", event.Object)
+		}
 		if event.Type != watch.Added {
 			continue
 		}
@@ -95,6 +101,7 @@ func (c *Collector) collectContainerLogs(ctx context.Context, pod, container str
 	defer logs.Close()
 
 	lc := types.Ctx{Hostname: fmt.Sprintf("%s.%s.%s", c.namespace, pod, container)}
+	log.Println(lc.String())
 
 	lines := make(chan []byte, 100)
 	defer close(lines)
@@ -116,14 +123,21 @@ func (c *Collector) collectContainerLogs(ctx context.Context, pod, container str
 				return err
 			}
 			defer f.Close()
-			offset := 0
+			err = c.db.Set(lc, types.Entry{}, f.Name(), 0)
+			if err != nil {
+				return err
+			}
+			var offset int64 = 0
 			for entry := range entries {
 				if n, err := f.WriteString(entry.String() + "\n"); err != nil {
 					return err
 				} else {
-					offset = offset + n
+					offset = offset + int64(n)
 				}
-				// key := fmt.Sprintf("(%s,%d)->(%s,%d)", lc.Hostname, entry.Time.UnixMilli(), f.Name(), offset)
+				err := c.db.Set(lc, entry, f.Name(), offset)
+				if err != nil {
+					return err
+				}
 			}
 			return nil
 		}()

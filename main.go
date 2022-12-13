@@ -5,13 +5,17 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	db2 "github.com/kubectl-logz/kubectl-logz/internal/db"
 
 	"github.com/kubectl-logz/kubectl-logz/internal/parser/logfmt"
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
@@ -29,6 +33,14 @@ import (
 //go:embed build
 var fs embed.FS
 
+type JSONError struct {
+	Message string `json:"message"`
+}
+
+func errToJSON(err error) JSONError {
+	return JSONError{err.Error()}
+}
+
 func main() {
 	var openBrowser bool
 	var kubeconfig string
@@ -40,7 +52,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	collector, err := internal.NewCollector(kubeconfig)
+	db, err := db2.NewDb()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+	collector, err := internal.NewCollector(kubeconfig, db)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,26 +68,20 @@ func main() {
 	r.GET("/api/v1/logs", func(c *gin.Context) {
 		dir, err := os.ReadDir("logs")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
+			c.JSON(http.StatusInternalServerError, errToJSON(err))
 			return
 		}
 		var files []string
 		for _, entry := range dir {
-			files = append(files, entry.Name())
+			if filepath.Ext(entry.Name()) == ".log" {
+				files = append(files, entry.Name())
+			}
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"files": files,
 		})
 	})
 	r.GET("/api/v1/logs/:file", func(c *gin.Context) {
-		f, err := os.Open(filepath.Join("logs", c.Param("file")))
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err.Error())
-			return
-		}
-		defer f.Close()
-		var entries []gin.H
-		scanner := bufio.NewScanner(f)
 		level := types.Level(c.Query("level"))
 		page, _ := strconv.Atoi(c.Query("page"))
 		if page < 0 {
@@ -80,30 +91,48 @@ func main() {
 		if limit <= 0 {
 			limit = 100
 		}
-		count := -1
-		for scanner.Scan() {
+		start, _ := time.Parse(time.RFC3339, c.Query("start"))
+		hostname := strings.TrimSuffix(c.Param("file"), ".log")
+		file, offset, closer, err := db.Get(types.Ctx{Hostname: hostname}, start)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errToJSON(err))
+			return
+		}
+		defer closer.Close()
+
+		log.Printf("file=%s offset=%d\n", file, offset)
+
+		f, err := os.Open(file)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errToJSON(err))
+			return
+		}
+		defer f.Close()
+		_, err = f.Seek(offset, io.SeekStart)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, errToJSON(err))
+			return
+		}
+
+		var entries []types.Entry
+
+		count := 0
+		for scanner := bufio.NewScanner(f); scanner.Scan(); {
 			entry := types.Entry{}
 			err := logfmt.Unmarshal(scanner.Bytes(), &entry)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, err.Error())
+				c.JSON(http.StatusInternalServerError, errToJSON(err))
 				return
 			}
 			if entry.Level.Less(level) {
 				continue
 			}
 			count++
-			if count < page*limit {
+			if count <= page*limit {
 				continue
 			}
 			if len(entries) <= limit {
-				h := gin.H{
-					"level": entry.Level,
-					"msg":   entry.Msg,
-				}
-				if !entry.Time.IsZero() {
-					h["time"] = entry.Time
-				}
-				entries = append(entries, h)
+				entries = append(entries, entry)
 			}
 		}
 		c.JSON(http.StatusOK, gin.H{
