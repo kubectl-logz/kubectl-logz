@@ -8,15 +8,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kubectl-logz/kubectl-logz/internal/db"
-
-	"k8s.io/apimachinery/pkg/watch"
-
 	"github.com/kubectl-logz/kubectl-logz/internal/parser"
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
@@ -29,10 +26,9 @@ func init() {
 type Collector struct {
 	clientset *kubernetes.Clientset
 	namespace string
-	db        *db.DB
 }
 
-func NewCollector(kubeconfig string, db *db.DB) (*Collector, error) {
+func NewCollector(kubeconfig string) (*Collector, error) {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	loadingRules.DefaultClientConfig = &clientcmd.DefaultClientConfig
 	loadingRules.ExplicitPath = kubeconfig
@@ -52,7 +48,6 @@ func NewCollector(kubeconfig string, db *db.DB) (*Collector, error) {
 	return &Collector{
 		clientset: clientset,
 		namespace: namespace,
-		db:        db,
 	}, nil
 }
 
@@ -123,20 +118,12 @@ func (c *Collector) collectContainerLogs(ctx context.Context, pod, container str
 				return err
 			}
 			defer f.Close()
-			err = c.db.Set(lc, types.Entry{}, f.Name(), 0)
-			if err != nil {
-				return err
-			}
 			var offset int64 = 0
 			for entry := range entries {
 				if n, err := f.WriteString(entry.String() + "\n"); err != nil {
 					return err
 				} else {
 					offset = offset + int64(n)
-				}
-				err := c.db.Set(lc, entry, f.Name(), offset)
-				if err != nil {
-					return err
 				}
 			}
 			return nil

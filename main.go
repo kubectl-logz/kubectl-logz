@@ -5,17 +5,13 @@ import (
 	"context"
 	"embed"
 	"flag"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
-
-	db2 "github.com/kubectl-logz/kubectl-logz/internal/db"
 
 	"github.com/kubectl-logz/kubectl-logz/internal/parser/logfmt"
 	"github.com/kubectl-logz/kubectl-logz/internal/types"
@@ -44,7 +40,7 @@ func errToJSON(err error) JSONError {
 func main() {
 	var openBrowser bool
 	var kubeconfig string
-	flag.BoolVar(&openBrowser, "b", false, "open browser")
+	flag.BoolVar(&openBrowser, "b", true, "open browser")
 	flag.StringVar(&kubeconfig, "k", filepath.Join(homedir.HomeDir(), ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	flag.Parse()
 	log.Printf(" openBrowser=%v\n", openBrowser)
@@ -52,12 +48,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	db, err := db2.NewDb()
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer db.Close()
-	collector, err := internal.NewCollector(kubeconfig, db)
+	collector, err := internal.NewCollector(kubeconfig)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -91,16 +82,9 @@ func main() {
 		if limit <= 0 {
 			limit = 100
 		}
-		start, _ := time.Parse(time.RFC3339, c.Query("start"))
-		hostname := strings.TrimSuffix(c.Param("file"), ".log")
-		file, offset, closer, err := db.Get(types.Ctx{Hostname: hostname}, start)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, errToJSON(err))
-			return
-		}
-		defer closer.Close()
+		file := filepath.Join("logs", c.Param("file"))
 
-		log.Printf("file=%s offset=%d\n", file, offset)
+		log.Printf("file=%s\n", file)
 
 		f, err := os.Open(file)
 		if err != nil {
@@ -108,11 +92,6 @@ func main() {
 			return
 		}
 		defer f.Close()
-		_, err = f.Seek(offset, io.SeekStart)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, errToJSON(err))
-			return
-		}
 
 		var entries []types.Entry
 
